@@ -112,18 +112,20 @@ function provision_quickmigrate_save_site($context, $platform, $target, $new_uri
  */
 function drush_provision_quickmigrate_rollback() {
   $new_path = drush_get_option('new_site_path');
-  $old_path = d()->root;
+  $old_path = drush_get_option('old_site_path');
   if (is_dir($new_path)) {
     if (rename($new_path, $old_path)) {
-      provision_quickmigrate_save_site(d(), d()->platform, d()->uri);
-      if (!drush_get_error()) {
-        // @todo This should be moved to hosting_quickmigrate.
-        provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
-      }
+      provision_quickmigrate_save_site(d(), drush_get_option('old_platform'), drush_get_option('target_name'), d()->uri);
+      d()->service('db')->import_site_database();
+      provision_file()->unlink(d()->site_path . '/database.sql')
+        ->succeed('Deleted mysql dump from sites directory')
+        ->fail('Could not delete mysql dump from sites directory');
+      // @todo This should be moved to hosting_quickmigrate.
+      provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
     }
-    else {
-      drush_set_error("Cannot rollback update");
-    }
+  }
+  else {
+    drush_set_error("Cannot rollback update");
   }
 }
 
