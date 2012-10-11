@@ -7,12 +7,11 @@
 /**
  * Implements hook_drush_command().
  */
-function quickmigrate_drush_command() {
+function provision_quickmigrate_drush_command() {
   $items = array();
 
   $items['provision-quickmigrate'] = array(
     'description' => 'Do a quick migration.',
-    'callback' => 'drush_provision_quickmigrate',
     'arguments' => array(
       '@platform_name' => dt('The Drush alias of the platform.')),
     'examples' => array(
@@ -39,15 +38,43 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
     drush_set_option('target_name', $new_uri);
   }
   else {
+    $new_uri = d()->uri;
     // the site url stays the same
     drush_set_option('target_name', '@' . d()->uri);
   }
-
   $target = drush_get_option('target_name');
+  $new_path = d($platform)->root . "/sites/$new_uri";
+  drush_set_option('new_site_path', $new_path);
+  $old_path = d()->site_path;
+  if (rename($old_path, $new_path)) {
+    provision_quickmigrate_save_site(d(), $target, $new_uri);
+    if (!drush_get_error()) {
+      provision_backend_invoke($target, 'updatedb');
+      provision_backend_invoke($target, 'cc all');
+      // @todo This should be moved to hosting_quickmigrate.
+      provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
+    }
+  }
+  if (!drush_get_error()) {
+    drush_log(dt("Bringing site out of maintenance"));
+    d()->site_enabled = true;
+    drush_set_option('provision_save_config', false);
+    provision_backend_invoke($target, 'provision-verify');
+  }
+}
+
+/**
+ * Save a site with provision_save().
+ * @param $context
+ *   The context to use.
+ * @param $target
+ *   The target platform.
+ */
+function provision_quickmigrate_save_site($context, $target, $new_uri = NULL) {
   $options = array();
-  $options['uri'] = d()->uri;
-  if (!is_null($new_uri) && ($new_uri != d()->uri)) {
-    $options = d()->options;
+  $options['uri'] = $context->uri;
+  if (!is_null($new_uri) && ($new_uri != $context->uri)) {
+    $options = $context->options;
     $options['uri'] = ltrim($new_uri, '@');
     $hash_name = drush_get_option('#name') ? '#name' : 'name';
     $options[$hash_name] = $new_uri;
@@ -62,52 +89,35 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   if ($db_server = drush_get_option('new_db_server', FALSE)) {
     $options['db_server'] = $db_server;
   }
-  $new_path = d($platform)->root . "/sites/{$options['uri']}";
-  drush_set_option('new_site_path', $new_path);
-  $old_path = d()->site_path;
-  rename($old_path, $new_path);
   drush_backend_invoke_args('provision-save', array($target), $options);
-  provision_backend_invoke($target, 'updatedb');
-  provision_backend_invoke($target, 'cc all');
-  provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
-  if (!drush_get_error()) {
-    drush_log(dt("Bringing site out of maintenance"));
-    d()->site_enabled = true;
-    drush_set_option('provision_save_config', false);
-    provision_backend_invoke($target, 'provision-verify');
-  }
 }
 
 /**
- * Delete the old site directory and recreate the settings file
+ * Handle rollback. If we have got to the point that we tried to move the site,
+ * we need to move the site back and restore the database dump.
  */
-function drush_quickmigrate_post_provision_quickmigrate($platform, $new_uri = null) {
-  drush_set_option('installed', FALSE);
-
-  if (!drush_get_option('deploy_replace_site', FALSE)) {
-    // we remove the aliases even if redirection is enabled as a precaution
-    // if redirection is enabled, keep silent about errors
-    _provision_drupal_delete_aliases();
-    _provision_recursive_delete(d()->site_path);
-    d()->service('http')->sync(d()->site_path);
+function drush_provision_quickmigrate_rollback() {
+  $new_path = drush_get_option('new_site_path');
+  $old_path = d()->root;
+  if (is_dir($new_path)) {
+    if (rename($new_path, $old_path)) {
+      provision_quickmigrate_save_site(d(), d()->platform, d()->uri);
+      if (!drush_get_error()) {
+        // @todo This should be moved to hosting_quickmigrate.
+        provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
+      }
+    }
+    else {
+      drush_set_error("Cannot rollback update");
+    }
   }
-
-  if (!is_null($new_uri) && ($new_uri != d()->uri)) {
-    // remove the existing alias
-    $config = new provisionConfig_drushrc_alias(d()->name);
-    $config->unlink();
-  }
-
-  // Load the config file of the newly migrated site and return it to hosting.
-  provision_reload_config('site', drush_get_option('new_site_path', d()->site_path) . '/drushrc.php');
 }
 
 
 /**
  * Fix bug in provision that doesn't put the site in maintenance mode.
  */
-function quickmigrate_provision_drupal_config($uri, $data) {
-  var_dump('ugh');
+function provision_quickmigrate_provision_drupal_config($uri, $data) {
   if (!d()->site_enabled) {
     return array('$conf[\'maintenance_mode\'] = TRUE;');
   }
