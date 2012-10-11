@@ -13,7 +13,9 @@ function provision_quickmigrate_drush_command() {
   $items['provision-quickmigrate'] = array(
     'description' => 'Do a quick migration.',
     'arguments' => array(
-      '@platform_name' => dt('The Drush alias of the platform.')),
+      '@platform_name' => dt('The Drush alias of the platform.'),
+      'new_uri' => dt("The new URI the side should reside on."),
+    ),
     'examples' => array(
       'drush @site provision-migrate @platform_name' => 'Migrate the site as defined by the Drush alias, to the platform as defined by the platform\'s Drush alias',
     ),
