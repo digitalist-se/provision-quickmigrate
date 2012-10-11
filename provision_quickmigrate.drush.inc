@@ -66,6 +66,17 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   }
 }
 
+function drush_provision_quickmigrate_pre_provision_quickmigrate() {
+  // Generate a database dump.
+  d()->service('db')->generate_dump();
+}
+
+function drush_provision_quickmigrate_post_provision_quickmigrate() {
+  provision_file()->unlink(d()->site_path . '/database.sql')
+    ->succeed('Deleted mysql dump from sites directory')
+    ->fail('Could not delete mysql dump from sites directory');
+}
+
 /**
  * Save a site with provision_save().
  * @param $context
