@@ -119,10 +119,7 @@ function provision_quickmigrate_save_site($context, $platform, $target, $new_uri
   }
   $options['platform'] = $platform;
   $options['root'] = d($platform)->root;
-
-  if ($profile = drush_get_option('profile', FALSE)) {
-    $options['profile'] = $profile;
-  }
+  $options['profile'] = $context->profile;
 
   if ($db_server = drush_get_option('new_db_server', FALSE)) {
     $options['db_server'] = $db_server;
