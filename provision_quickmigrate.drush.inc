@@ -71,8 +71,7 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
     }
   }
   if (!drush_get_error()) {
-    drush_log(dt("Bringing site out of maintenance"));
-    d()->site_enabled = true;
+    // Verify the platform to get it deployed.
     drush_set_option('provision_save_config', false);
     provision_backend_invoke($target, 'provision-verify');
   }
