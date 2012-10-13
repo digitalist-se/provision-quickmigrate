@@ -60,7 +60,7 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   $new_path = d($platform)->root . "/sites/$new_uri";
   drush_set_option('new_site_path', $new_path);
   $old_path = d()->site_path;
-  drush_set_option('old_site_path', $new_path);
+  drush_set_option('old_site_path', $old_path);
   if (rename($old_path, $new_path)) {
     provision_quickmigrate_save_site(d(), $platform, $target, $new_uri);
     if (!drush_get_error()) {
