@@ -28,12 +28,24 @@ function provision_quickmigrate_drush_command() {
  * Perform the actual migration.
  */
 function drush_provision_quickmigrate($platform, $new_uri = NULL) {
-  // Put the site under maintenance.
-  drush_log(dt("Putting site under maintenance"));
-  d('@self')->site_enabled = FALSE;
-  _provision_drupal_create_settings_file();
+  // Purge our local files folder.
+  _provision_recursive_delete(d()->site_path . '/files');
+  // Put the site under maintenance
+  provision_backend_invoke('@' . d()->uri, 'vset maintenance_mode 1');
+  // Move the site folder to another location.
+  $site_path = d()->site_path;
+  $backup_uri = isset($new_uri) ? $new_uri :  d()->uri;
+  // Get the web server we are working with.
+  $server = d(d()->platform->web_server);
+  $server->shell_exec("mv {$site_path}/files /var/aegir/{$backup_uri}_files");
+  d()->service('http')->fetch(d()->site_path . '/private/');
+  d()->service('http')->fetch(d()->site_path . '/modules/');
+  d()->service('http')->fetch(d()->site_path . '/themes/');
+  d()->service('http')->fetch(d()->site_path . '/libraries/');
+  d()->service('http')->fetch(d()->site_path . '/local.settings.php');
 
   drush_set_option('old_platform', d()->platform->name);
+  // Sync things to the local directory.
 
   // If we are renaming the site, pick this up early.
   if (!is_null($new_uri) && ($new_uri != d()->uri)) {
@@ -75,6 +87,19 @@ function drush_provision_quickmigrate_post_provision_quickmigrate() {
   provision_file()->unlink(d()->site_path . '/database.sql')
     ->succeed('Deleted mysql dump from sites directory')
     ->fail('Could not delete mysql dump from sites directory');
+
+  $old_path = drush_get_option('old_site_path');
+  $old_platform = drush_get_option('old_platform');
+  d($old_platform)->service('http')->sync($old_path);
+  $backup_uri = d()->uri;
+  $server = d(d()->platform->web_server);
+  // Replace files directory.
+  $site_path = drush_get_option('new_site_path');
+  $server->shell_exec("rm -rf {$site_path}/files");
+  $server->shell_exec("mv /var/aegir/{$backup_uri}_files {$site_path}/files");
+
+  // Put the site out of maintenance
+  provision_backend_invoke(drush_get_option('target_name'), 'vset maintenance_mode 0');
 }
 
 /**
@@ -127,14 +152,6 @@ function drush_provision_quickmigrate_rollback() {
   else {
     drush_set_error("Cannot rollback update");
   }
-}
-
-
-/**
- * Fix bug in provision that doesn't put the site in maintenance mode.
- */
-function provision_quickmigrate_provision_drupal_config($uri, $data) {
-  if (!d()->site_enabled) {
-    return array('$conf[\'maintenance_mode\'] = TRUE;');
-  }
+  // Put the site out of maintenance
+  provision_backend_invoke(drush_get_option('target_name'), 'vset maintenance_mode 0');
 }
