@@ -32,6 +32,7 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   _provision_recursive_delete(d()->site_path . '/files');
   // Put the site under maintenance
   provision_backend_invoke('@' . d()->uri, 'vset maintenance_mode 1');
+  drush_set_option('new_platform', $platform);
   // Move the site folder to another location.
   $site_path = d()->site_path;
   $backup_uri = isset($new_uri) ? $new_uri :  d()->uri;
@@ -61,7 +62,7 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   drush_set_option('new_site_path', $new_path);
   $old_path = d()->site_path;
   drush_set_option('old_site_path', $old_path);
-  if (rename($old_path, $new_path)) {
+  if (!drush_get_error() && rename($old_path, $new_path)) {
     provision_quickmigrate_save_site(d(), $platform, $target, $new_uri);
     if (!drush_get_error()) {
       provision_backend_invoke($target, 'updatedb');
@@ -83,10 +84,6 @@ function drush_provision_quickmigrate_pre_provision_quickmigrate() {
 }
 
 function drush_provision_quickmigrate_post_provision_quickmigrate() {
-  provision_file()->unlink(d()->site_path . '/database.sql')
-    ->succeed('Deleted mysql dump from sites directory')
-    ->fail('Could not delete mysql dump from sites directory');
-
   $old_path = drush_get_option('old_site_path');
   $old_platform = drush_get_option('old_platform');
   d($old_platform)->service('http')->sync($old_path);
@@ -96,7 +93,8 @@ function drush_provision_quickmigrate_post_provision_quickmigrate() {
   $site_path = drush_get_option('new_site_path');
   $server->shell_exec("rm -rf {$site_path}/files");
   $server->shell_exec("mv /var/aegir/{$backup_uri}_files {$site_path}/files");
-
+  $server->shell_exec("rm {$site_path}/database.sql");
+  unlink("{$site_path}/database.sql");
   // Put the site out of maintenance
   provision_backend_invoke(drush_get_option('target_name'), 'vset maintenance_mode 0');
 }
@@ -134,14 +132,24 @@ function provision_quickmigrate_save_site($context, $platform, $target, $new_uri
 function drush_provision_quickmigrate_rollback() {
   $new_path = drush_get_option('new_site_path');
   $old_path = drush_get_option('old_site_path');
+  $new_platform = drush_get_option('new_platform');
+  $target = drush_get_option('target_name');
   if (is_dir($new_path)) {
     if (rename($new_path, $old_path)) {
       provision_quickmigrate_save_site(d(), drush_get_option('old_platform'), drush_get_option('target_name'), d()->uri);
+      drush_set_option('provision_save_config', false);
+      provision_backend_invoke($target, 'provision-verify');
       d()->service('db')->import_site_database();
-      provision_file()->unlink(d()->site_path . '/database.sql')
-        ->succeed('Deleted mysql dump from sites directory')
-        ->fail('Could not delete mysql dump from sites directory');
+      // Sync web fronts.
+      d($new_platform)->service('http')->sync($new_path);
       // @todo This should be moved to hosting_quickmigrate.
+      $backup_uri = d()->uri;
+      $server = d(d()->platform->web_server);
+      // Replace files directory.
+      $server->shell_exec("rm -rf {$old_path}/files");
+      $server->shell_exec("mv /var/aegir/{$backup_uri}_files {$old_path}/files");
+      $server->shell_exec("rm {$old_path}/database.sql");
+      // Import changes to the hostmaster.
       provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
     }
   }
