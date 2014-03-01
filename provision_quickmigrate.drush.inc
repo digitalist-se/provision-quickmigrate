@@ -30,6 +30,8 @@ function provision_quickmigrate_drush_command() {
 function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   // Purge our local files folder.
   _provision_recursive_delete(d()->site_path . '/files');
+  _provision_recursive_delete(d()->site_path . 'private/files');
+
   // Put the site under maintenance
   provision_backend_invoke('@' . d()->uri, 'vset maintenance_mode 1');
   drush_set_option('new_platform', $platform);
@@ -39,7 +41,8 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   // Get the web server we are working with.
   $server = d(d()->platform->web_server);
   $server->shell_exec("mv {$site_path}/files /var/aegir/{$backup_uri}_files");
-  d()->service('http')->fetch(d()->site_path . '/private/');
+  $server->shell_exec("mv {$site_path}/private/files /var/aegir/{$backup_uri}_private_files");
+ // d()->service('http')->fetch(d()->site_path . '/private/');
   d()->service('http')->fetch(d()->site_path . '/modules/');
   d()->service('http')->fetch(d()->site_path . '/themes/');
   d()->service('http')->fetch(d()->site_path . '/libraries/');
@@ -83,16 +86,24 @@ function drush_provision_quickmigrate_pre_provision_quickmigrate() {
   d()->service('db')->generate_dump();
 }
 
-function drush_provision_quickmigrate_post_provision_quickmigrate() {
+function drush_provision_quickmigrate_post_provision_quickmigrate(){
+
   $old_path = drush_get_option('old_site_path');
   $old_platform = drush_get_option('old_platform');
   d($old_platform)->service('http')->sync($old_path);
   $backup_uri = d()->uri;
   $server = d(d()->platform->web_server);
+  $group = _get_webserver_group($server);
   // Replace files directory.
   $site_path = drush_get_option('new_site_path');
+  $server->shell_exec("chgrp {$group} {$site_path}/private");
+  $server->shell_exec("mkdir {$site_path}/private/temp");
+  $server->shell_exec("chgrp {$group} {$site_path}/private/temp");
+  $server->shell_exec("chgrp {$group} {$site_path}/settings.php");
   $server->shell_exec("rm -rf {$site_path}/files");
+  $server->shell_exec("rm -rf {$site_path}/private/files");
   $server->shell_exec("mv /var/aegir/{$backup_uri}_files {$site_path}/files");
+  $server->shell_exec("mv /var/aegir/{$backup_uri}_private_files {$site_path}/private/files");
   $server->shell_exec("rm {$site_path}/database.sql");
   unlink("{$site_path}/database.sql");
   // Put the site out of maintenance
@@ -122,7 +133,7 @@ function provision_quickmigrate_save_site($context, $platform, $target, $new_uri
   if ($db_server = drush_get_option('new_db_server', FALSE)) {
     $options['db_server'] = $db_server;
   }
-  drush_backend_invoke_args('provision-save', array($target), $options);
+  drush_invoke_process('@self', 'provision-save', array($target), $options);
 }
 
 /**
@@ -158,4 +169,11 @@ function drush_provision_quickmigrate_rollback() {
   }
   // Put the site out of maintenance
   provision_backend_invoke(drush_get_option('target_name'), 'vset maintenance_mode 0');
+}
+
+function _get_webserver_group($server){
+  $server->shell_exec("groups aegir");
+  $result = drush_shell_exec_output();
+  $groups = explode(' ', $result[0]);
+  return $groups[3];
 }
