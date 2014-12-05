@@ -17,7 +17,7 @@ function provision_quickmigrate_drush_command() {
       'new_uri' => dt("The new URI the side should reside on."),
     ),
     'examples' => array(
-      'drush @site provision-migrate @platform_name' => 'Migrate the site as defined by the Drush alias, to the platform as defined by the platform\'s Drush alias',
+      'drush @site provision-quickmigrate @platform_name' => 'Migrate the site as defined by the Drush alias, to the platform as defined by the platform\'s Drush alias',
     ),
     'bootstrap' => DRUSH_BOOTSTRAP_DRUPAL_ROOT,
   );
