@@ -29,15 +29,18 @@ function provision_quickmigrate_drush_command() {
  */
 function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   // Purge our local files folder.
+  drush_log("Quickmigrate: purging local files folders");
   _provision_recursive_delete(d()->site_path . '/files');
-  _provision_recursive_delete(d()->site_path . 'private/files');
+  _provision_recursive_delete(d()->site_path . '/private/files');
 
   // Put the site under maintenance
   provision_backend_invoke('@' . d()->uri, 'vset maintenance_mode 1');
   drush_set_option('new_platform', $platform);
+  drush_log("Quickmigrate: New platform = $platform");
   // Move the site folder to another location.
   $site_path = d()->site_path;
   $backup_uri = isset($new_uri) ? $new_uri :  d()->uri;
+  drush_log("Quickmigrate: Backup uri = $backup_uri");
   // Get the web server we are working with.
   $server = d(d()->platform->web_server);
   $server->shell_exec("mv {$site_path}/files /var/aegir/{$backup_uri}_files");
@@ -49,6 +52,7 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
   d()->service('http')->fetch(d()->site_path . '/local.settings.php');
 
   drush_set_option('old_platform', d()->platform->name);
+  drush_log("Quickmigrate: Old platform = " . d()->platform->name);
   // Sync things to the local directory.
 
   // If we are renaming the site, pick this up early.
@@ -61,10 +65,13 @@ function drush_provision_quickmigrate($platform, $new_uri = NULL) {
     drush_set_option('target_name', '@' . d()->uri);
   }
   $target = drush_get_option('target_name');
+  drush_log("Quickmigrate: target = $target");
   $new_path = d($platform)->root . "/sites/$new_uri";
   drush_set_option('new_site_path', $new_path);
+  drush_log("Quickmigrate: new_site_path = $new_path");
   $old_path = d()->site_path;
   drush_set_option('old_site_path', $old_path);
+  drush_log("Quickmigrate: old_site_path = $old_path");
   if (!drush_get_error() && rename($old_path, $new_path)) {
     provision_quickmigrate_save_site(d(), $platform, $target, $new_uri);
     if (!drush_get_error()) {
@@ -94,6 +101,7 @@ function drush_provision_quickmigrate_post_provision_quickmigrate(){
   $backup_uri = d()->uri;
   $server = d(d()->platform->web_server);
   $group = _get_webserver_group($server);
+  drush_log("Quickmigrate: remote webserver group = $group");
   // Replace files directory.
   $site_path = drush_get_option('new_site_path');
   $server->shell_exec("chgrp {$group} {$site_path}/private");
@@ -159,6 +167,7 @@ function drush_provision_quickmigrate_rollback() {
       // Replace files directory.
       $server->shell_exec("rm -rf {$old_path}/files");
       $server->shell_exec("mv /var/aegir/{$backup_uri}_files {$old_path}/files");
+      $server->shell_exec("mv /var/aegir/{$backup_uri}_private_files {$old_path}/private/files" );
       $server->shell_exec("rm {$old_path}/database.sql");
       // Import changes to the hostmaster.
       provision_backend_invoke('@hostmaster', 'hosting-import', array($target));
